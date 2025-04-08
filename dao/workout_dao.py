@@ -18,10 +18,12 @@ LEDGER_TABLE = "ledger"
 WORKOUT_TYPES_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{WORKOUT_TYPES_TABLE}"
 LEDGER_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{LEDGER_TABLE}"
 
+
 @functools.lru_cache(maxsize=1)
 def get_bq_client() -> bigquery.Client:
     """Return a cached BigQuery client (assumes application default credentials)."""
     return bigquery.Client(project=PROJECT_ID)
+
 
 def ensure_dataset_and_tables() -> None:
     """
@@ -45,6 +47,8 @@ def ensure_dataset_and_tables() -> None:
         bigquery.SchemaField("workout_type", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("unit", "STRING", mode="REQUIRED"),
         bigquery.SchemaField("is_int", "BOOL", mode="REQUIRED"),
+        bigquery.SchemaField("daily_target", "FLOAT", mode="REQUIRED"),
+        bigquery.SchemaField("half_life_days", "FLOAT", mode="REQUIRED"),
     ]
     create_table_if_not_exists(WORKOUT_TYPES_TABLE_ID, schema_workout_types)
 
@@ -71,30 +75,47 @@ def create_table_if_not_exists(table_id: str, schema: list) -> None:
         client.create_table(table)
         logger.info(f"Created table '{table_id}'.")
 
-def create_workout_type(workout_type: str, unit: str, is_int: bool) -> None:
-    """
-    Inserts a new row into workout_types table.
-    """
+
+def create_workout_type(
+    workout_type: str,
+    unit: str,
+    is_int: bool,
+    daily_target: float,
+    half_life_days: float
+) -> None:
     client = get_bq_client()
     rows_to_insert = [
         {
             "workout_type": workout_type,
             "unit": unit,
-            "is_int": is_int
+            "is_int": is_int,
+            "daily_target": daily_target,
+            "half_life_days": half_life_days
         }
     ]
     errors = client.insert_rows_json(WORKOUT_TYPES_TABLE_ID, rows_to_insert)
     if errors:
         raise Exception(f"Error inserting workout type: {errors}")
-    logger.info(f"Created workout type '{workout_type}' with unit '{unit}', is_int={is_int}.")
+    logger.info(
+        f"Created workout type '{workout_type}': "
+        f"unit={unit}, is_int={is_int}, daily_target={daily_target}, half_life_days={half_life_days}"
+    )
+
+
 
 def read_workout_types() -> list:
     """
-    Returns a list of dicts with workout_type, unit, is_int.
+    Returns a list of dicts with
+    [workout_type, unit, is_int, daily_target, half_life_days].
     """
     client = get_bq_client()
     query = f"""
-        SELECT workout_type, unit, is_int
+        SELECT
+            workout_type,
+            unit,
+            is_int,
+            daily_target,
+            half_life_days
         FROM `{WORKOUT_TYPES_TABLE_ID}`
         ORDER BY workout_type
     """
@@ -103,16 +124,24 @@ def read_workout_types() -> list:
     logger.info(f"Read {len(results)} workout types.")
     return results
 
-def update_workout_type(old_workout_type: str, new_workout_type: str, new_unit: str, new_is_int: bool) -> None:
-    """
-    Updates an existing workout_type row.
-    """
+
+
+def update_workout_type(
+    old_workout_type: str,
+    new_workout_type: str,
+    new_unit: str,
+    new_is_int: bool,
+    new_daily_target: float,
+    new_half_life_days: float
+) -> None:
     client = get_bq_client()
     query = f"""
         UPDATE `{WORKOUT_TYPES_TABLE_ID}`
         SET workout_type = @new_workout_type,
             unit = @new_unit,
-            is_int = @new_is_int
+            is_int = @new_is_int,
+            daily_target = @new_daily_target,
+            half_life_days = @new_half_life_days
         WHERE workout_type = @old_workout_type
     """
     job_config = bigquery.QueryJobConfig(
@@ -120,25 +149,27 @@ def update_workout_type(old_workout_type: str, new_workout_type: str, new_unit: 
             bigquery.ScalarQueryParameter("new_workout_type", "STRING", new_workout_type),
             bigquery.ScalarQueryParameter("new_unit", "STRING", new_unit),
             bigquery.ScalarQueryParameter("new_is_int", "BOOL", new_is_int),
+            bigquery.ScalarQueryParameter("new_daily_target", "FLOAT", new_daily_target),
+            bigquery.ScalarQueryParameter("new_half_life_days", "FLOAT", new_half_life_days),
             bigquery.ScalarQueryParameter("old_workout_type", "STRING", old_workout_type),
         ]
     )
     client.query(query, job_config=job_config).result()
-    logger.info(f"Updated workout type '{old_workout_type}' to '{new_workout_type}' with unit '{new_unit}', is_int={new_is_int}.")
+    logger.info(
+        f"Updated workout type '{old_workout_type}' to '{new_workout_type}': "
+        f"unit={new_unit}, is_int={new_is_int}, "
+        f"daily_target={new_daily_target}, half_life_days={new_half_life_days}"
+    )
+
 
 def delete_workout_type(workout_type: str) -> None:
-    """
-    Deletes an existing workout_type row.
-    """
     client = get_bq_client()
     query = f"""
         DELETE FROM `{WORKOUT_TYPES_TABLE_ID}`
         WHERE workout_type = @workout_type
     """
     job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("workout_type", "STRING", workout_type)
-        ]
+        query_parameters=[bigquery.ScalarQueryParameter("workout_type", "STRING", workout_type)]
     )
     client.query(query, job_config=job_config).result()
     logger.info(f"Deleted workout type '{workout_type}'.")
@@ -160,6 +191,7 @@ def log_workout(workout_type: str, date_value: date, amount: float, unit: str) -
     if errors:
         raise Exception(f"Error inserting ledger entry: {errors}")
     logger.info(f"Logged workout: {workout_type}, {amount} {unit} on {date_value}.")
+
 
 def read_workouts(filter_type: str = None) -> pd.DataFrame:
     """

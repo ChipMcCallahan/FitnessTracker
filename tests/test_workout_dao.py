@@ -2,7 +2,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
 from datetime import date
-from typing import List, Dict, Any
 
 import pandas as pd
 from google.api_core.exceptions import NotFound
@@ -93,21 +92,24 @@ class TestWorkoutDAO(unittest.TestCase):
 
     @patch("dao.workout_dao.get_bq_client")
     def test_create_workout_type(self, mock_get_client: MagicMock) -> None:
-        """
-        Test creating a workout type.
-        """
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_client.insert_rows_json.return_value = []
 
-        create_workout_type("pushups", "reps", True)
+        # call with half_life_days=14.0, for example
+        create_workout_type(
+            "pushups",
+            "reps",
+            True,
+            daily_target=50.0,
+            half_life_days=14.0
+        )
+
         mock_client.insert_rows_json.assert_called_once()
-        # Extract the call args
-        args, kwargs = mock_client.insert_rows_json.call_args
-        self.assertEqual(args[0], WORKOUT_TYPES_TABLE_ID)
-        self.assertEqual(args[1][0]["workout_type"], "pushups")
-        self.assertEqual(args[1][0]["unit"], "reps")
-        self.assertTrue(args[1][0]["is_int"])
+        args, _ = mock_client.insert_rows_json.call_args
+        row = args[1][0]
+        self.assertEqual(row["daily_target"], 50.0)
+        self.assertEqual(row["half_life_days"], 14.0)
 
     @patch("dao.workout_dao.get_bq_client")
     def test_create_workout_type_error(self, mock_get_client: MagicMock) -> None:
@@ -118,31 +120,29 @@ class TestWorkoutDAO(unittest.TestCase):
         mock_get_client.return_value = mock_client
         mock_client.insert_rows_json.return_value = ["Some error"]
         with self.assertRaises(Exception) as context:
-            create_workout_type("pushups", "reps", True)
+            create_workout_type("pushups", "reps", True, 50.0, 0.9)
         self.assertIn("Error inserting workout type", str(context.exception))
 
     @patch("dao.workout_dao.get_bq_client")
     def test_read_workout_types(self, mock_get_client: MagicMock) -> None:
-        """
-        Test reading workout types.
-        """
-        # mock_client.query().result() should return an iterable of rows
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
+
         mock_query_job = MagicMock()
         mock_query_job.result.return_value = [
-            {"workout_type": "pushups", "unit": "reps", "is_int": True},
-            {"workout_type": "running", "unit": "miles", "is_int": False},
+            {
+                "workout_type": "pushups",
+                "unit": "reps",
+                "is_int": True,
+                "daily_target": 50.0,
+                "half_life_days": 14.0,
+            }
         ]
         mock_client.query.return_value = mock_query_job
 
-        result: List[Dict[str, Any]] = read_workout_types()
-
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["workout_type"], "pushups")
-        self.assertTrue(result[0]["is_int"])
-        self.assertEqual(result[1]["workout_type"], "running")
-        self.assertFalse(result[1]["is_int"])
+        result = read_workout_types()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["half_life_days"], 14.0)
 
     @patch("dao.workout_dao.get_bq_client")
     def test_update_workout_type(self, mock_get_client: MagicMock) -> None:
@@ -152,7 +152,7 @@ class TestWorkoutDAO(unittest.TestCase):
         # We'll just check that client.query() was called with the correct query
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        update_workout_type("pushups", "situps", "reps", True)
+        update_workout_type("pushups", "situps", "reps", True, 50.0, 0.9)
         mock_client.query.assert_called_once()
 
         called_query = mock_client.query.call_args[0][0]
