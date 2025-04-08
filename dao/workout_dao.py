@@ -1,6 +1,7 @@
 import functools
 import logging
 from datetime import date
+from typing import Sequence
 
 import pandas as pd
 from google.cloud import bigquery
@@ -18,6 +19,22 @@ LEDGER_TABLE = "ledger"
 WORKOUT_TYPES_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{WORKOUT_TYPES_TABLE}"
 LEDGER_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{LEDGER_TABLE}"
 
+
+def reorder_workout_types(all_wtypes: list, preferred_order: Sequence[str] = ("running", "pushups")) -> list:
+    """
+    all_wtypes: list of workout type dicts, e.g. [{"workout_type": "pushups", ...}, {"workout_type": "running", ...}, {"workout_type": "yoga", ...}]
+    preferred_order: e.g. ["running", "pushups"]
+
+    Returns a new list with the preferred_order items first (ordered as in preferred_order),
+    then the remaining dicts sorted alphabetically by workout_type.
+    """
+    # Get the preferred workout types in the specified order.
+    preferred_items = [wt for key in preferred_order for wt in all_wtypes if wt["workout_type"] == key]
+    # Get those that are not in the preferred set.
+    preferred_set = set(preferred_order)
+    not_preferred_items = [wt for wt in all_wtypes if wt["workout_type"] not in preferred_set]
+    not_preferred_items.sort(key=lambda wt: wt["workout_type"])
+    return preferred_items + not_preferred_items
 
 @functools.lru_cache(maxsize=1)
 def get_bq_client() -> bigquery.Client:
@@ -122,7 +139,7 @@ def read_workout_types() -> list:
     job = client.query(query)
     results = [dict(row) for row in job.result()]
     logger.info(f"Read {len(results)} workout types.")
-    return results
+    return reorder_workout_types(results)
 
 
 
