@@ -51,3 +51,5 @@ def app():
                     st.rerun()
     else:
         st.write("No workout types found.")
+
+app()

@@ -3,6 +3,8 @@ import unittest
 from unittest.mock import patch, MagicMock
 from datetime import date
 from typing import List, Dict, Any
+
+import pandas as pd
 from google.api_core.exceptions import NotFound
 
 # Import your DAO functions
@@ -201,42 +203,49 @@ class TestWorkoutDAO(unittest.TestCase):
 
     @patch("dao.workout_dao.get_bq_client")
     def test_read_workouts_no_filter(self, mock_get_client: MagicMock) -> None:
-        """
-        Test reading workouts with no filter.
-        """
+        """Test reading workouts with no filter, returning a DataFrame."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_query_job = MagicMock()
-        mock_query_job.result.return_value = [
-            {"workout_type": "pushups", "date": date(2025, 4, 7), "amount": 25.0, "unit": "reps"},
-            {"workout_type": "running", "date": date(2025, 4, 6), "amount": 5.0, "unit": "miles"}
-        ]
-        mock_client.query.return_value = mock_query_job
 
+        # Create a mock query job object and specify the .to_dataframe() return value
+        mock_query_job = MagicMock()
+        mock_df = pd.DataFrame([
+            {"workout_type": "pushups", "date": date(2025, 4, 7), "amount": 25.0, "unit": "reps"},
+            {"workout_type": "running", "date": date(2025, 4, 6), "amount": 5.0, "unit": "miles"},
+        ])
+        # The .query(...) call will return our mock_query_job
+        mock_client.query.return_value = mock_query_job
+        # The .to_dataframe() call on that job returns mock_df
+        mock_query_job.to_dataframe.return_value = mock_df
+
+        # Call the DAO
         results = read_workouts()
+
+        # Now results is a DataFrame:
         self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["workout_type"], "pushups")
-        self.assertEqual(results[1]["workout_type"], "running")
+        self.assertEqual(results.loc[0, "workout_type"], "pushups")
+        self.assertEqual(results.loc[1, "workout_type"], "running")
 
     @patch("dao.workout_dao.get_bq_client")
     def test_read_workouts_filter(self, mock_get_client: MagicMock) -> None:
-        """
-        Test reading workouts with a specific workout_type filter.
-        """
+        """Test reading workouts with a specific workout_type filter."""
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
+
         mock_query_job = MagicMock()
-        mock_query_job.result.return_value = [
-            {"workout_type": "pushups", "date": date(2025, 4, 7), "amount": 25.0, "unit": "reps"},
-        ]
+        mock_df = pd.DataFrame([
+            {"workout_type": "pushups", "date": date(2025, 4, 7), "amount": 25.0, "unit": "reps"}
+        ])
         mock_client.query.return_value = mock_query_job
+        mock_query_job.to_dataframe.return_value = mock_df
 
         results = read_workouts("pushups")
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["workout_type"], "pushups")
+        self.assertEqual(results.loc[0, "workout_type"], "pushups")
+
         # confirm that the query was called with the param
-        query_called = mock_client.query.call_args[0][0]
-        self.assertIn("WHERE workout_type = @filter_type", query_called)
+        called_query = mock_client.query.call_args[0][0]
+        self.assertIn("WHERE workout_type = @filter_type", called_query)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 import functools
 import logging
 from datetime import date
+
+import pandas as pd
 from google.cloud import bigquery
 from google.api_core.exceptions import NotFound
 
@@ -159,10 +161,10 @@ def log_workout(workout_type: str, date_value: date, amount: float, unit: str) -
         raise Exception(f"Error inserting ledger entry: {errors}")
     logger.info(f"Logged workout: {workout_type}, {amount} {unit} on {date_value}.")
 
-def read_workouts(filter_type: str = None) -> list:
+def read_workouts(filter_type: str = None) -> pd.DataFrame:
     """
     Reads workouts from the ledger, optionally filtered by workout_type.
-    Ordered by most recent date first.
+    Returns a pd.DataFrame, ordered by most recent date first.
     """
     client = get_bq_client()
     base_query = f"""
@@ -179,15 +181,18 @@ def read_workouts(filter_type: str = None) -> list:
 
     if filter_type:
         job_config = bigquery.QueryJobConfig(
-            query_parameters=[bigquery.ScalarQueryParameter("filter_type", "STRING", filter_type)]
+            query_parameters=[
+                bigquery.ScalarQueryParameter("filter_type", "STRING", filter_type)
+            ]
         )
         job = client.query(base_query, job_config=job_config)
     else:
         job = client.query(base_query)
 
-    results = [dict(row) for row in job.result()]
+    # Directly convert the query results to a DataFrame
+    df = job.to_dataframe()
     logger.info(
-        f"Read {len(results)} workouts from ledger."
+        f"Read {len(df)} workouts from ledger."
         + (f" (Filtered by '{filter_type}')" if filter_type else "")
     )
-    return results
+    return df

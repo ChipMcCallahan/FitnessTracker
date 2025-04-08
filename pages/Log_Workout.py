@@ -1,5 +1,6 @@
+import pytz
 import streamlit as st
-from datetime import date
+from datetime import date, datetime
 from dao.workout_dao import read_workout_types, log_workout, read_workouts
 
 def app():
@@ -20,7 +21,7 @@ def app():
     use_int = selected_type_info["is_int"] if selected_type_info else False
     unit = selected_type_info["unit"] if selected_type_info else ""
 
-    workout_date = st.date_input("Date", date.today())
+    workout_date = st.date_input("Date", datetime.now(pytz.timezone("America/Los_Angeles")).date())
 
     # If is_int, we only allow integer input; otherwise float
     if use_int:
@@ -40,14 +41,9 @@ def app():
     filtered_type = filter_type if filter_type else None
     workouts = read_workouts(filtered_type)
 
-    if not workouts:
+    if workouts.empty:
         st.write("No workouts found.")
     else:
-        for w in workouts:
-            display_amt = w["amount"]
-            # If is_int for that workout type, cast to int for display
-            matching_type = next((t for t in all_types if t["workout_type"] == w["workout_type"]), None)
-            if matching_type and matching_type["is_int"]:
-                display_amt = int(display_amt)
+        st.dataframe(workouts)
 
-            st.write(f"{w['date']}: {w['workout_type']} - {display_amt} {w['unit']}")
+app()
